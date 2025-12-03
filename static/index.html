@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Multi-Agent System Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; }
+    textarea { width: 100%; height: 80px; }
+    pre { background: #f4f4f4; padding: 8px; overflow-x: auto; }
+    .row { margin-bottom: 10px; }
+    .label { font-weight: bold; }
+
+    .steps-container {
+      border: 1px solid #ddd;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 10px;
+      background: #fafafa;
+    }
+    .step-item {
+      margin-bottom: 12px;
+      padding: 8px;
+      border-radius: 4px;
+      border-left: 4px solid #007bff;
+      background: #ffffff;
+      list-style: none;
+    }
+    .step-header {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .step-subtitle {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      margin: 4px 0;
+    }
+
+    .metrics-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .metric-card {
+      border-radius: 6px;
+      border: 1px solid #ddd;
+      padding: 8px 12px;
+      min-width: 150px;
+      background: #fafafa;
+    }
+    .metric-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #666;
+    }
+    .metric-value {
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    /* Product cards (Magento tool) */
+    .product-cards {
+      margin: 8px 0;
+      padding: 8px;
+      border-radius: 6px;
+      background: #f7faff;
+      border: 1px solid #d0e3ff;
+    }
+    .product-cards h3 {
+      margin-top: 0;
+      font-size: 16px;
+    }
+    .product-card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .product-card {
+      border-radius: 6px;
+      border: 1px solid #ddd;
+      padding: 8px;
+      background: #ffffff;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .product-name {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .product-sku {
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .product-price {
+      font-weight: 500;
+      color: #0b7a00;
+      margin-bottom: 6px;
+    }
+    .product-link {
+      font-size: 12px;
+      text-decoration: none;
+      color: #0056b3;
+    }
+    .product-link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>Multi-Agent System Demo</h1>
+
+  <div class="row">
+    <span class="label">Session ID:</span>
+    <input id="sessionId" style="width: 300px;">
+    <button onclick="newSession()">New</button>
+  </div>
+
+  <div class="row">
+    <span class="label">Mode:</span>
+    <select id="mode">
+      <option value="sequential">Sequential</option>
+      <option value="parallel">Parallel</option>
+      <option value="loop">Loop (first agent)</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <span class="label">Agents (comma-separated):</span>
+    <input id="agents" style="width: 400px;" placeholder="research_agent,coding_agent,ecommerce_agent">
+  </div>
+
+  <div class="row">
+    <label class="label" for="message">Message:</label><br>
+    <textarea id="message"></textarea>
+  </div>
+
+  <div class="row">
+    <label>
+      <input type="checkbox" id="rememberFact"> Store in long-term memory
+    </label>
+    <input id="memoryKey" placeholder="memory key (e.g. user_profile)">
+  </div>
+
+  <button onclick="sendChat()">Send</button>
+
+  <h2>Response (Raw)</h2>
+  <pre id="response"></pre>
+
+  <h2>Response Steps</h2>
+  <div id="steps" class="steps-container">
+    <em>No response yet. Send a message to see agent steps.</em>
+  </div>
+
+  <h2>Metrics</h2>
+  <div id="metricsSummary" class="metrics-summary"></div>
+  <h3>Raw Metrics JSON</h3>
+  <pre id="metrics"></pre>
+
+  <script>
+    const baseUrl = window.location.origin;
+
+    function escapeHtml(str) {
+      if (!str && str !== 0) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function renderSteps(data) {
+      const stepsEl = document.getElementById('steps');
+
+      if (!data || !data.agent_responses) {
+        stepsEl.innerHTML = "<em>No steps available.</em>";
+        return;
+      }
+
+      const entries = Object.entries(data.agent_responses);
+      if (entries.length === 0) {
+        stepsEl.innerHTML = "<em>No agent responses.</em>";
+        return;
+      }
+
+      let html = `<div><strong>Mode:</strong> ${escapeHtml(data.mode)} | <strong>History size:</strong> ${data.history_size}</div><br>`;
+      html += `<ol style="padding-left: 16px;">`;
+
+      entries.forEach(([key, value], index) => {
+        const isToolStep = key.endsWith("_tool");
+        html += `<li class="step-item">`;
+        html += `<div class="step-header">Step ${index + 1}: <span>${escapeHtml(key)}</span>${isToolStep ? " <small>(tool)</small>" : ""}</div>`;
+
+        // Tool step with HTML cards from magento_product_tool
+        if (isToolStep && value && typeof value === "object" && value.html_cards) {
+          html += `<div class="step-subtitle">Rendered tool output</div>`;
+          html += `<div class="product-cards-container">` + value.html_cards + `</div>`;
+
+          html += `<div class="step-subtitle">Raw tool JSON</div>`;
+          html += `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+        } else {
+          // Non-tool / plain agent response
+          if (typeof value === "string") {
+            html += `<pre>${escapeHtml(value)}</pre>`;
+          } else {
+            html += `<div class="step-subtitle">Raw data</div>`;
+            html += `<pre>${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+          }
+        }
+
+        html += `</li>`;
+      });
+
+      html += `</ol>`;
+      stepsEl.innerHTML = html;
+    }
+
+    function renderMetricsSummary(data) {
+      const container = document.getElementById('metricsSummary');
+      if (!data) {
+        container.innerHTML = "";
+        return;
+      }
+
+      const items = [
+        { label: "Requests Total", key: "requests_total" },
+        { label: "Agent Runs", key: "agent_runs_total" },
+        { label: "Tool Calls", key: "tool_calls_total" },
+        { label: "Errors Total", key: "errors_total" },
+        { label: "Avg Latency (ms)", key: "avg_latency_ms" },
+      ];
+
+      let html = "";
+      items.forEach(item => {
+        const val = data[item.key] !== undefined ? data[item.key] : "—";
+        html += `
+          <div class="metric-card">
+            <div class="metric-label">${escapeHtml(item.label)}</div>
+            <div class="metric-value">${escapeHtml(val)}</div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    async function sendChat() {
+      const sessionId = document.getElementById('sessionId').value || null;
+      const mode = document.getElementById('mode').value;
+      const msg = document.getElementById('message').value;
+      const agentsStr = document.getElementById('agents').value;
+      const rememberFact = document.getElementById('rememberFact').checked;
+      const memoryKey = document.getElementById('memoryKey').value || null;
+
+      const agents = agentsStr
+        ? agentsStr.split(',').map(a => a.trim()).filter(Boolean)
+        : null;
+
+      const payload = {
+        session_id: sessionId,
+        user_message: msg,
+        mode,
+        agents,
+        remember_fact: rememberFact,
+        memory_key: memoryKey
+      };
+
+      const res = await fetch(`${baseUrl}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      document.getElementById('sessionId').value = data.session_id;
+      document.getElementById('response').textContent = JSON.stringify(data, null, 2);
+
+      // Render response steps (including Magento tool cards)
+      renderSteps(data);
+
+      // Refresh metrics view
+      loadMetrics();
+    }
+
+    async function loadMetrics() {
+      const res = await fetch(`${baseUrl}/metrics`);
+      const data = await res.json();
+      document.getElementById('metrics').textContent = JSON.stringify(data, null, 2);
+      renderMetricsSummary(data);
+    }
+
+    function newSession() {
+      document.getElementById('sessionId').value = '';
+      document.getElementById('response').textContent = '';
+      document.getElementById('steps').innerHTML = "<em>New session created. Send a message to see agent steps.</em>";
+    }
+
+    window.onload = loadMetrics;
+  </script>
+</body>
+</html>
